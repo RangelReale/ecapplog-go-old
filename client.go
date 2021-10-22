@@ -10,11 +10,12 @@ import (
 )
 
 type Client struct {
-	address      string
-	isOpen       bool
-	cmdChan      chan interface{}
-	cmdCtx       context.Context
-	cmdCtxCancel context.CancelFunc
+	address        string
+	isOpen         bool
+	cmdChan        chan interface{}
+	cmdChanProcess chan interface{}
+	cmdCtx         context.Context
+	cmdCtxCancel   context.CancelFunc
 }
 
 func NewClient(options ...Option) *Client {
@@ -31,18 +32,21 @@ func NewClient(options ...Option) *Client {
 func (c *Client) Open() {
 	if !c.isOpen {
 		c.cmdChan = make(chan interface{})
+		c.cmdChanProcess = make(chan interface{})
 		c.cmdCtx, c.cmdCtxCancel = context.WithCancel(context.Background())
 		c.isOpen = true
 
-		go c.handleConnection(c.cmdCtx, c.cmdChan)
+		go c.handleConnection(c.cmdCtx, c.cmdChan, c.cmdChanProcess)
 	}
 }
 
 func (c *Client) Close() {
 	if c.isOpen {
 		c.cmdCtxCancel()
+		close(c.cmdChanProcess)
 		close(c.cmdChan)
 
+		c.cmdChanProcess = nil
 		c.cmdChan = nil
 		c.cmdCtx = nil
 		c.cmdCtxCancel = nil
@@ -50,12 +54,12 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan interface{}) {
-	rfor:
+func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan interface{}, c_cmdChanProcess chan interface{}) {
+rfor:
 	for {
 		err := func() error {
 			var d net.Dialer
-			cctx, ccancel := context.WithTimeout(c_cmdCtx, time.Second * 10)
+			cctx, ccancel := context.WithTimeout(c_cmdCtx, time.Second*10)
 			defer ccancel()
 			conn, err := d.DialContext(cctx, "tcp", c.address)
 			if err != nil {
@@ -76,20 +80,23 @@ func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan inter
 				return err
 			}
 
-			//logs := make([]interface{}, 0)
-			//out := make(chan interface{})
-			//outCh := func() chan interface{} {
-			//	if len(logs) == 0 {
-			//		return nil
-			//	}
-			//	return out
-			//}
-			//curVal := func() interface{} {
-			//	if len(logs) == 0 {
-			//		return nil
-			//	}
-			//	return logs[0]
-			//}
+			// https://medium.com/capital-one-tech/building-an-unbounded-channel-in-go-789e175cd2cd
+			processErr := make(chan error)
+			go c.handleProcess(conn, c_cmdCtx, c_cmdChanProcess, processErr)
+
+			cmds := make([]interface{}, 0)
+			outCh := func() chan interface{} {
+				if len(cmds) == 0 {
+					return nil
+				}
+				return c_cmdChanProcess
+			}
+			curVal := func() interface{} {
+				if len(cmds) == 0 {
+					return nil
+				}
+				return cmds[0]
+			}
 
 			for {
 				var err error
@@ -97,10 +104,11 @@ func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan inter
 				case <-c_cmdCtx.Done():
 					return nil
 				case cmd := <-c_cmdChan:
-					switch xcmd := cmd.(type) {
-					case *cmdLog:
-						err = c.handleCmdLog(conn, xcmd)
-					}
+					cmds = append(cmds, cmd)
+				case outCh() <- curVal():
+					cmds = cmds[1:]
+				case perr := <-processErr:
+					err = perr
 				}
 				if err != nil {
 					if errors.Is(err, net.ErrClosed) {
@@ -119,6 +127,26 @@ func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan inter
 			break rfor
 		case <-time.After(time.Second * 5):
 			break
+		}
+	}
+}
+
+func (c *Client) handleProcess(conn net.Conn, c_cmdCtx context.Context, c_cmdChanProcess chan interface{},
+	processErr chan error) {
+rfor:
+	for {
+		var err error
+		select {
+		case <-c_cmdCtx.Done():
+			break rfor
+		case cmd := <-c_cmdChanProcess:
+			switch xcmd := cmd.(type) {
+			case *cmdLog:
+				err = c.handleCmdLog(conn, xcmd)
+			}
+		}
+		if err != nil {
+			processErr <- err
 		}
 	}
 }
