@@ -75,7 +75,7 @@ rfor:
 			}
 
 			// write banner
-			_, err = conn.Write([]byte("ECAPPLOG"))
+			err = c.handleBanner(conn)
 			if err != nil {
 				return err
 			}
@@ -149,6 +149,31 @@ rfor:
 			processErr <- err
 		}
 	}
+}
+
+func (c *Client) handleBanner(conn net.Conn) error {
+	// write command
+	err := binary.Write(conn, binary.BigEndian, command_Banner)
+	if err != nil {
+		return err
+	}
+
+	data := []byte("ECAPPLOG ECAPPLOG-GO")
+
+	// write size
+	size := int32(len(data))
+	err = binary.Write(conn, binary.BigEndian, size)
+	if err != nil {
+		return err
+	}
+
+	// write data
+	err = binary.Write(conn, binary.BigEndian, data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *Client) handleCmdLog(conn net.Conn, cmd *cmdLog) error {

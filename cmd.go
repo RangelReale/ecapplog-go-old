@@ -8,7 +8,8 @@ import (
 type command uint8
 
 const (
-	command_Log command = 0
+	command_Banner command = 99
+	command_Log    command = 0
 )
 
 type cmdLog struct {
