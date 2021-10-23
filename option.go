@@ -7,3 +7,9 @@ func WithAddress(address string) Option {
 		c.address = address
 	}
 }
+
+func WithAppName(appname string) Option {
+	return func (c *Client) {
+		c.appname = appname
+	}
+}

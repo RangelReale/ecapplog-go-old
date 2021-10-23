@@ -5,11 +5,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 )
 
 type Client struct {
+	appname string
 	address        string
 	isOpen         bool
 	cmdChan        chan interface{}
@@ -20,6 +22,7 @@ type Client struct {
 
 func NewClient(options ...Option) *Client {
 	ret := &Client{
+		appname: "ECAPPLOG-GO",
 		address: "127.0.0.1:13991",
 		isOpen:  false,
 	}
@@ -158,7 +161,7 @@ func (c *Client) handleBanner(conn net.Conn) error {
 		return err
 	}
 
-	data := []byte("ECAPPLOG ECAPPLOG-GO")
+	data := []byte(fmt.Sprintf("ECAPPLOG %s", c.appname))
 
 	// write size
 	size := int32(len(data))
