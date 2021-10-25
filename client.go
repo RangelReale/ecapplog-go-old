@@ -107,10 +107,9 @@ rfor:
 				}
 				if err != nil {
 					if errors.Is(err, net.ErrClosed) {
-						fmt.Printf("Connection closed\n")
 						return nil
 					}
-					c.handleError(err)
+					return err
 				}
 			}
 		}()
