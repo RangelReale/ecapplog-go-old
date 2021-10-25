@@ -3,7 +3,7 @@ package ecapplog
 type Priority string
 
 const (
-	Priority_TRACE = "trace"
+	Priority_TRACE = "TRACE"
 	Priority_DEBUG = "DEBUG"
 	Priority_INFORMATION = "INFORMATION"
 	Priority_NOTICE = "NOTICE"

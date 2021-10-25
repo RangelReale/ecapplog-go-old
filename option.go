@@ -13,3 +13,9 @@ func WithAppName(appname string) Option {
 		c.appname = appname
 	}
 }
+
+func WithBufferSize(bufferSize int) Option {
+	return func (c *Client) {
+		c.bufferSize = bufferSize
+	}
+}

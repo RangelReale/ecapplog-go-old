@@ -8,22 +8,27 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/RangelReale/ecapplog-go/internal"
 )
 
 type Client struct {
-	appname string
-	address        string
-	isOpen         bool
-	cmdChan        chan interface{}
-	cmdChanProcess chan interface{}
-	cmdCtx         context.Context
-	cmdCtxCancel   context.CancelFunc
+	appname      string
+	address      string
+	bufferSize int
+	isOpen       bool
+	ringBuffer   *internal.RingBuffer
+	inChan       chan interface{}
+	outChan      chan interface{}
+	cmdCtx       context.Context
+	cmdCtxCancel context.CancelFunc
 }
 
 func NewClient(options ...Option) *Client {
 	ret := &Client{
 		appname: "ECAPPLOG-GO",
 		address: "127.0.0.1:13991",
+		bufferSize: 1000,
 		isOpen:  false,
 	}
 	for _, opt := range options {
@@ -33,31 +38,37 @@ func NewClient(options ...Option) *Client {
 }
 
 func (c *Client) Open() {
+	dropFn := func (m interface{}) {
+		c.handleError(fmt.Errorf("Dropped older message"))
+	}
+
 	if !c.isOpen {
-		c.cmdChan = make(chan interface{})
-		c.cmdChanProcess = make(chan interface{})
+		c.inChan = make(chan interface{})
+		c.outChan = make(chan interface{}, c.bufferSize)
 		c.cmdCtx, c.cmdCtxCancel = context.WithCancel(context.Background())
 		c.isOpen = true
 
-		go c.handleConnection(c.cmdCtx, c.cmdChan, c.cmdChanProcess)
+		c.ringBuffer = internal.NewRingBufferWithDropFn(c.inChan, c.outChan, dropFn)
+		go c.ringBuffer.Run()
+		go c.handleConnection(c.cmdCtx, c.outChan)
 	}
 }
 
 func (c *Client) Close() {
 	if c.isOpen {
 		c.cmdCtxCancel()
-		close(c.cmdChanProcess)
-		close(c.cmdChan)
+		close(c.inChan)
 
-		c.cmdChanProcess = nil
-		c.cmdChan = nil
+		c.ringBuffer = nil
+		c.outChan = nil
+		c.inChan = nil
 		c.cmdCtx = nil
 		c.cmdCtxCancel = nil
 		c.isOpen = false
 	}
 }
 
-func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan interface{}, c_cmdChanProcess chan interface{}) {
+func (c *Client) handleConnection(c_cmdCtx context.Context, c_cmdChan chan interface{}) {
 rfor:
 	for {
 		err := func() error {
@@ -83,38 +94,20 @@ rfor:
 				return err
 			}
 
-			// https://medium.com/capital-one-tech/building-an-unbounded-channel-in-go-789e175cd2cd
-			processErr := make(chan error)
-			go c.handleProcess(conn, c_cmdCtx, c_cmdChanProcess, processErr)
-
-			cmds := make([]interface{}, 0)
-			outCh := func() chan interface{} {
-				if len(cmds) == 0 {
-					return nil
-				}
-				return c_cmdChanProcess
-			}
-			curVal := func() interface{} {
-				if len(cmds) == 0 {
-					return nil
-				}
-				return cmds[0]
-			}
-
 			for {
 				var err error
 				select {
 				case <-c_cmdCtx.Done():
 					return nil
 				case cmd := <-c_cmdChan:
-					cmds = append(cmds, cmd)
-				case outCh() <- curVal():
-					cmds = cmds[1:]
-				case perr := <-processErr:
-					err = perr
+					switch xcmd := cmd.(type) {
+					case *cmdLog:
+						err = c.handleCmdLog(conn, xcmd)
+					}
 				}
 				if err != nil {
 					if errors.Is(err, net.ErrClosed) {
+						fmt.Printf("Connection closed\n")
 						return nil
 					}
 					c.handleError(err)
@@ -130,26 +123,6 @@ rfor:
 			break rfor
 		case <-time.After(time.Second * 5):
 			break
-		}
-	}
-}
-
-func (c *Client) handleProcess(conn net.Conn, c_cmdCtx context.Context, c_cmdChanProcess chan interface{},
-	processErr chan error) {
-rfor:
-	for {
-		var err error
-		select {
-		case <-c_cmdCtx.Done():
-			break rfor
-		case cmd := <-c_cmdChanProcess:
-			switch xcmd := cmd.(type) {
-			case *cmdLog:
-				err = c.handleCmdLog(conn, xcmd)
-			}
-		}
-		if err != nil {
-			processErr <- err
 		}
 	}
 }
@@ -213,7 +186,7 @@ func (c *Client) handleError(err error) {
 
 func (c *Client) Log(time time.Time, priority Priority, source string, text string) {
 	if c.isOpen {
-		c.cmdChan <- &cmdLog{
+		c.inChan <- &cmdLog{
 			Time:     cmdTime{time},
 			Priority: priority,
 			Source:   source,

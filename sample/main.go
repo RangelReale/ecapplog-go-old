@@ -33,9 +33,9 @@ func main() {
 
 	w.Wait()
 
-	fmt.Printf("Sleeping 2 seconds...\n")
+	fmt.Printf("Sleeping 5 seconds...\n")
 	select {
-	case <-time.After(time.Second * 2):
+	case <-time.After(time.Second * 5):
 		break
 	}
 
