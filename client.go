@@ -15,7 +15,7 @@ import (
 type Client struct {
 	appname      string
 	address      string
-	bufferSize int
+	bufferSize   int
 	isOpen       bool
 	ringBuffer   *internal.RingBuffer
 	inChan       chan interface{}
@@ -26,10 +26,10 @@ type Client struct {
 
 func NewClient(options ...Option) *Client {
 	ret := &Client{
-		appname: "ECAPPLOG-GO",
-		address: "127.0.0.1:13991",
+		appname:    "ECAPPLOG-GO",
+		address:    "127.0.0.1:13991",
 		bufferSize: 1000,
-		isOpen:  false,
+		isOpen:     false,
 	}
 	for _, opt := range options {
 		opt(ret)
@@ -38,7 +38,7 @@ func NewClient(options ...Option) *Client {
 }
 
 func (c *Client) Open() {
-	dropFn := func (m interface{}) {
+	dropFn := func(m interface{}) {
 		c.handleError(fmt.Errorf("Dropped older message"))
 	}
 
@@ -183,13 +183,19 @@ func (c *Client) handleError(err error) {
 
 }
 
-func (c *Client) Log(time time.Time, priority Priority, source string, text string) {
+func (c *Client) Log(time time.Time, priority Priority, source string, text string, options ...LogOption) {
+	var lo logOptions
+	for _, opt := range options {
+		opt(&lo)
+	}
+
 	if c.isOpen {
 		c.inChan <- &cmdLog{
-			Time:     cmdTime{time},
-			Priority: priority,
-			Source:   source,
-			Text:     text,
+			Time:      cmdTime{time},
+			Priority:  priority,
+			Source:    source,
+			Text:      text,
+			RawSource: lo.rawSource,
 		}
 	}
 }

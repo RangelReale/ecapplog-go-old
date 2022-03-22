@@ -13,10 +13,11 @@ const (
 )
 
 type cmdLog struct {
-	Time     cmdTime  `json:"time"`
-	Priority Priority `json:"priority"`
-	Source   string   `json:"source"`
-	Text     string   `json:"text"`
+	Time      cmdTime  `json:"time"`
+	Priority  Priority `json:"priority"`
+	Source    string   `json:"source"`
+	Text      string   `json:"text"`
+	RawSource string   `json:"raw_source,omitempty"`
 }
 
 const cmdTimeFormat = "2006-01-02T15:04:05.999999999"
